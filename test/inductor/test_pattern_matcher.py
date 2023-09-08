@@ -1053,7 +1053,7 @@ class TestPaternMatcher(TestCase):
                 counter = 0
                 expected = fn(*copy.deepcopy(args))
                 actual = torch.compile(fn)(*copy.deepcopy(args))
-                self.assertEqual(counter, int(fn is f0))
+                self.assertEqual(counter, 1)
                 torch.testing.assert_close(actual, expected)
 
     def test_match_equivalent_function_invocations3(self):
@@ -1100,7 +1100,7 @@ class TestPaternMatcher(TestCase):
                 counter = 0
                 expected = fn(*copy.deepcopy(args))
                 actual = torch.compile(fn)(*copy.deepcopy(args))
-                self.assertEqual(counter, int(fn is f1))
+                self.assertEqual(counter, 1)
                 torch.testing.assert_close(actual, expected)
 
 
