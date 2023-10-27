@@ -324,7 +324,12 @@ def _check_file_inner(filename, allow_torch=False):
             True,
             "skipped according skipfiles.FBCODE_SKIP_DIRS",
         )
-    if bool(SKIP_DIRS_RE.match(filename)):
+    # temporary hack otherwise inline will be skipped
+    if (
+        bool(SKIP_DIRS_RE.match(filename))
+        and not filename.endswith("variables/tensor.py")
+        and not filename.endswith("fx/graph_module.py")
+    ):
         return SkipResult(True, "skipped according skipfiles.SKIP_DIRS")
     else:
         return SkipResult(False, "inlined by default")
