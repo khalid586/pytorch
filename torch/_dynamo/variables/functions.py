@@ -678,8 +678,12 @@ class TritonKernelVariable(VariableTracker):
 
         # Both for grid's meta as well as for the kernel, we need combined
         # args and kwargs normalized
-        normalized_args = {**dict(zip(self.kernel.arg_names, args)), **kwargs}
-        meta = ConstDictVariable(normalized_args, dict)
+        names = (
+            variables.ConstantVariable.create(name) for name in self.kernel.arg_names
+        )
+        kwargs = {variables.ConstantVariable.create(k): v for k, v in kwargs.items()}
+        normalized_args = {**dict(zip(names, args)), **kwargs}
+        meta = ConstDictVariable(normalized_args)
 
         # If the grid is a function, then lets execute it and convert it to
         # a list

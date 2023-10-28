@@ -21,7 +21,7 @@ from ..utils import (
     proxy_args_kwargs,
 )
 from .base import MutableLocal, VariableTracker
-from .dicts import DefaultDictVariable
+from .dicts import DefaultDictVariable, is_hashable
 from .functions import (
     NestedUserFunctionVariable,
     UserFunctionVariable,
@@ -159,11 +159,11 @@ class SuperVariable(VariableTracker):
             inner_fn in (collections.OrderedDict.__setitem__, object.__setattr__)
             and isinstance(self.objvar, variables.CustomizedDictVariable)
             and args
-            and variables.ConstDictVariable.is_valid_key(args[0])
+            and is_hashable(args[0])
             and self.objvar.mutable_local
         ):
             assert not kwargs and len(args) == 2
-            k = variables.ConstDictVariable.get_key(args[0])
+            k = variables.ConstDictVariable._HashableTracker(args[0])
 
             newval = collections.OrderedDict(self.objvar.items)
             newval[k] = args[1]

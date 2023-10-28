@@ -889,6 +889,7 @@ def specialize_args_kwargs(tx, args, kwargs):
     return specialized_args, specialized_kwargs
 
 
+dict_keys = type(dict().keys())
 dict_values = type(dict().values())
 odict_values = type(collections.OrderedDict().values())
 tuple_iterator = type(iter(tuple()))
@@ -909,6 +910,12 @@ def product(it):
 def tuple_iterator_getitem(it, index):
     _, (obj,), start = it.__reduce__()
     return obj[start + index]
+
+
+def dict_keys_getitem(d, n):
+    from itertools import islice
+
+    return next(islice(iter(d), n, n + 1))
 
 
 def enum_repr(value, local):
@@ -976,16 +983,24 @@ def dict_const_keys(value):
     }
 
 
-def dict_const_keys_repr(const_keys, *, local):
-    if any(isinstance(k, enum.Enum) for k in const_keys):
+def const_repr(x, *, local) -> str:
+    from .allowed_functions import is_builtin_callable
+
+    if isinstance(x, (tuple, list)):
+        return f"{x.__name__}({','.join(const_repr(s, local=local) for s in x)})"
+    elif isinstance(x, enum.Enum):
         # To workaround repr(Enum) returning invalid global reference before python 3.11
         # by calling enum_repr and removing quotes to render enum in guard code.
-        const_keys_str = f"{ {enum_repr(k, local=local) if isinstance(k, enum.Enum) else repr(k) for k in const_keys} }".replace(
-            "'", ""
-        )
+        return enum_repr(x, local=local).replace("'", "")
+    elif is_builtin_callable(x):
+        return x.__name__
     else:
-        const_keys_str = f"{const_keys!r}"
-    return const_keys_str
+        return str(x)
+
+
+def dict_const_keys_repr(const_keys, *, local) -> str:
+    keys_str = ','.join(const_repr(s, local=local) for s in const_keys)
+    return "{" + keys_str + "}"
 
 
 def global_key_name(key):

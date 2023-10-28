@@ -3079,11 +3079,19 @@ def fn():
     def test_const_dict_variable_python_type(self):
         from torch._dynamo.variables import ConstantVariable, ConstDictVariable
 
-        d1 = {"a": ConstantVariable.create(10), "b": ConstantVariable.create(20)}
+        make_key = ConstDictVariable._make_const_key
+
+        d1 = {
+            make_key("a"): ConstantVariable.create(10),
+            make_key("b"): ConstantVariable.create(20),
+        }
         d2 = collections.OrderedDict(
-            [("x", ConstantVariable.create(12)), ("y", ConstantVariable.create(22))]
+            [
+                (make_key("x"), ConstantVariable.create(12)),
+                (make_key("y"), ConstantVariable.create(22)),
+            ]
         )
-        self.assertEqual(ConstDictVariable(d1, dict).python_type(), dict)
+        self.assertEqual(ConstDictVariable(d1).python_type(), dict)
         self.assertEqual(
             ConstDictVariable(d2, collections.OrderedDict).python_type(),
             collections.OrderedDict,
@@ -6597,7 +6605,7 @@ def fn():
         self.assertEqual(f(), torch.ones(3, dtype=torch.float32))
 
     def test_inline_dict_function_passed_as_arg(self):
-        @torch.compile
+        @torch.compile(backend="eager")
         def fn(d, x, y):
             if d[x] is torch.float32:
                 return y.cos()

@@ -75,7 +75,7 @@ from .utils import (
 from .variables.base import is_side_effect_safe, MutableLocal, typestr, VariableTracker
 from .variables.builder import VariableBuilder, wrap_fx_proxy
 from .variables.builtin import BuiltinVariable
-from .variables.constant import ConstantVariable, EnumVariable
+from .variables.constant import ConstantVariable
 from .variables.ctx_manager import (
     ContextWrappingVariable,
     GenericContextWrappingVariable,
@@ -1148,7 +1148,7 @@ class InstructionTranslatorBase(Checkpointable[InstructionTranslatorGraphState])
     @break_graph_if_unsupported(push=1)
     def CALL_FUNCTION_EX(self, inst):
         if inst.argval == 0:
-            kwargsvars = ConstDictVariable({}, dict)
+            kwargsvars = ConstDictVariable({})
             argsvars = self.pop()
         elif inst.argval == 1:
             kwargsvars = self.pop()
@@ -1183,7 +1183,9 @@ class InstructionTranslatorBase(Checkpointable[InstructionTranslatorGraphState])
         ):
             unimplemented(f"non-static call {typestr(argsvars)} {typestr(kwargsvars)}")
 
-        self.call_function(fn, argsvars.items, kwargsvars.items)
+        # Map to a dictionary of str -> VariableTracker
+        kwargsvars = {k.vt.as_python_constant(): v for k, v in kwargsvars.items.items()}
+        self.call_function(fn, argsvars.items, kwargsvars)
 
     @break_graph_if_unsupported(push=1)
     def CALL_FUNCTION_KW(self, inst):
@@ -1349,19 +1351,8 @@ class InstructionTranslatorBase(Checkpointable[InstructionTranslatorGraphState])
     def BUILD_MAP(self, inst):
         items = self.popn(inst.argval * 2)
         options = VariableTracker.propagate(items)
-        result = dict()
-        for k, v in zip(items[::2], items[1::2]):
-            assert (
-                isinstance(k, (ConstantVariable, EnumVariable, BuiltinVariable))
-                or (isinstance(k, TensorVariable) and k.specialized_value is not None)
-                or k.is_python_constant()
-            )
-
-            result[ConstDictVariable.get_key(k)] = v
-        assert len(result) == len(items) / 2
-        self.push(
-            ConstDictVariable(result, dict, mutable_local=MutableLocal(), **options)
-        )
+        d = dict(zip(items[::2], items[1::2]))
+        self.push(ConstDictVariable(d, mutable_local=MutableLocal(), **options))
 
     def BUILD_MAP_UNPACK(self, inst):
         items = self.popn(inst.argval)
@@ -1374,7 +1365,6 @@ class InstructionTranslatorBase(Checkpointable[InstructionTranslatorGraphState])
         self.push(
             ConstDictVariable(
                 result,
-                dict,
                 mutable_local=MutableLocal(),
                 **VariableTracker.propagate(items),
             )
@@ -1386,15 +1376,16 @@ class InstructionTranslatorBase(Checkpointable[InstructionTranslatorGraphState])
         keys = self.pop()
         values = self.popn(inst.argval)
         options = VariableTracker.propagate([keys] + values)
+
         assert isinstance(keys, TupleVariable)
         assert keys.is_python_constant()
-        keys = keys.as_python_constant()
-        assert istype(keys, tuple)
+
+        keys = keys.unpack_var_sequence(self)
         assert len(keys) == len(values)
+
         self.push(
             ConstDictVariable(
                 dict(zip(keys, values)),
-                dict,
                 mutable_local=MutableLocal(),
                 **options,
             )
@@ -1405,17 +1396,7 @@ class InstructionTranslatorBase(Checkpointable[InstructionTranslatorGraphState])
         assert inst.argval > 0
         obj = self.stack[-inst.arg]
         assert isinstance(obj, ConstDictVariable)
-        assert obj.mutable_local
-        items = dict(obj.items)
-        items[k.as_python_constant()] = v
-        self.replace_all(
-            obj,
-            ConstDictVariable(
-                items,
-                obj.user_cls,
-                **VariableTracker.propagate([obj, k, v]),
-            ),
-        )
+        obj.call_method(self, "__setitem__", (k, v), {})
 
     def SET_ADD(self, inst):
         v = self.pop()
@@ -1672,13 +1653,17 @@ class InstructionTranslatorBase(Checkpointable[InstructionTranslatorGraphState])
 
     def MATCH_KEYS(self, inst):
         tos = self.stack[-1]
-        assert tos.is_python_constant()
-        keys = tos.as_python_constant()
         tos1 = self.stack[-2]
         assert isinstance(tos1, ConstDictVariable)
-        match_obj = tos1.items
-        if all(key in match_obj for key in keys):
-            self.push(TupleVariable([match_obj[key] for key in keys]))
+
+        def is_in(x, d):
+            return d.call_method(self, "__contains__", [x], {}).value
+
+        def get(x, d):
+            return d.call_method(self, "__getattr__", [x], {})
+
+        if all(is_in(k, tos1) for k in tos):
+            self.push(TupleVariable([get(k, tos1) for k in tos]))
             if sys.version_info < (3, 11):
                 self.push(ConstantVariable.create(True))
         else:
