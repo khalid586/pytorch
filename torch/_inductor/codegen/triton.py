@@ -713,7 +713,7 @@ class IterationRangesRoot(IterationRanges):
             return f"{pid}.to({self.kernel.index_dtype})"
         return pid
 
-    def codegen_header(self, code, no_x_dim=False):
+    def codegen_header(self, code):
         x = self.prefix
         if self.is_loop():
             code.writeline(f"{self.name} = {x}offset + {x}base")
@@ -833,12 +833,6 @@ class TritonKernel(Kernel):
         self.last_usage = set()
 
         self.persistent_reduction = self.should_use_persistent_reduction()
-        self.no_x_dim = (
-            self.reduction_hint == ReductionHint.INNER
-            and self.persistent_reduction
-            and len(self.numels) == 2
-            and self.numels[-1] >= 256
-        )
         self.initialize_range_tree(pid_cache)
 
         # A set of autotuning hints to pass as part of triton_meta
@@ -898,7 +892,7 @@ class TritonKernel(Kernel):
         for tree in self.range_trees:
             # reduction indexing goes inside a loop
             if not tree.is_loop():
-                tree.codegen_header(self.body, self.no_x_dim)
+                tree.codegen_header(self.body)
         if self.inside_reduction and self.range_trees[-1].is_loop():
             # workaround for this issue:
             # https://gist.github.com/jansel/6527126f781559095c5531f98a4235a7
@@ -1161,7 +1155,6 @@ class TritonKernel(Kernel):
                 continue
             if index_vars.intersection(tree.var_list):
                 have_loop_vars = True
-            else:
                 have_dense = False
             dense_mask_vars.add(f"{tree.prefix}mask")
 
@@ -1469,6 +1462,8 @@ class TritonKernel(Kernel):
         masks = sorted(masks)
         if self._load_mask:
             masks.append(self._load_mask)
+        sizes = [":" for _ in self.range_trees]
+        sizes[-1] = "None"
         reduction_range_prefix = self.range_trees[-1].prefix
         reduction_sizes = ["None" for _ in self.range_trees]
         reduction_sizes[-1] = ":"
@@ -2031,19 +2026,14 @@ class TritonKernel(Kernel):
         return len(self.range_trees) - no_x_dim - no_r_dim
 
     def indexing_size_str(self, i=None, x=None):
-        # no_x_dim is sympy.logic.boolalg.BooleanTrue
-        no_x_dim = int(bool(self.no_x_dim))
-        sizes = ["None"] * self.triton_tensor_ndim()
+        sizes = ["None"] * (len(self.range_trees) - int(self.numels[-1] == 1))
         if i is not None:
-            idx = i - no_x_dim
-            sizes[idx] = ":"
+            sizes[i] = ":"
         return f"[{', '.join(sizes)}]"
 
     def dense_size_str(self):
         sizes = []
         for tree in self.range_trees:
-            if self.no_x_dim and tree.prefix == "x":
-                continue
             if tree.prefix != "r" or self.inside_reduction:
                 sizes.append(f"{tree.prefix.upper()}BLOCK")
             elif tree.prefix == "r" and tree.numel != 1:
