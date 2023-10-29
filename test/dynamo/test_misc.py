@@ -7511,6 +7511,22 @@ def ___make_guard_fn():
         res = opt_func(a)
         self.assertIsInstance(res, torch.Tensor)
 
+    def test_torch_device_dtype_class(self):
+        class Foo:
+            def __init__(
+                self,
+                dtype: torch.dtype = torch.float,
+                device: torch.device = torch.device("cpu"),
+            ) -> None:
+                self.value = torch.tensor(10, dtype=dtype, device=device)
+
+        def fn():
+            return Foo().value
+
+        opt_func = torch._dynamo.optimize("inductor", nopython=True)(fn)
+        res = opt_func()
+        self.assertEqual(res, 10.0)
+
     def test_itertools_repeat(self):
         counters.clear()
 
