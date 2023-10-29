@@ -13,18 +13,7 @@ collection support for PyTorch APIs.
 """
 
 import functools
-from typing import (
-    Any,
-    Callable,
-    Iterable,
-    List,
-    Optional,
-    overload,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Any, Callable, Iterable, List, Optional, overload, Tuple, Type, Union
 
 import torch
 
@@ -33,8 +22,20 @@ if not (torch._running_with_deploy() and torch.compiled_with_cxx11_abi()):
     from optree import PyTreeSpec  # direct import for type annotations
 else:
     optree = None  # type: ignore[assignment]
-    from ._pytree import TreeSpec as PyTreeSpec  # type: ignore[assignment]
+    from .python import TreeSpec as PyTreeSpec  # type: ignore[assignment]
 
+from .typing import (
+    Context,
+    DumpableContext,
+    FlattenFunc,
+    FromDumpableContextFn,
+    PyTree,
+    R,
+    S,
+    T,
+    ToDumpableContextFn,
+    UnflattenFunc,
+)
 
 __all__ = [
     "PyTree",
@@ -65,20 +66,8 @@ __all__ = [
 ]
 
 
-T = TypeVar("T")
-S = TypeVar("S")
-R = TypeVar("R")
-
-
-Context = Optional[Any]
-PyTree = Any
 TreeSpec = PyTreeSpec
-FlattenFunc = Callable[[PyTree], Tuple[List, Context]]
-UnflattenFunc = Callable[[Iterable, Context], PyTree]
 OpTreeUnflattenFunc = Callable[[Context, Iterable], PyTree]
-DumpableContext = Any  # Any json dumpable text
-ToDumpableContextFn = Callable[[Context], DumpableContext]
-FromDumpableContextFn = Callable[[DumpableContext], Context]
 
 
 def _reverse_args(func: UnflattenFunc) -> OpTreeUnflattenFunc:
@@ -220,9 +209,9 @@ def register_pytree_node(
         )
 
     if _register_python_pytree_node:
-        from . import _pytree
+        from . import python
 
-        _pytree._register_pytree_node(
+        python._register_pytree_node(
             cls,
             flatten_func,
             unflatten_func,
@@ -810,7 +799,7 @@ def treespec_dumps(treespec: PyTreeSpec) -> str:
             f"treespec_dumps(spec): Expected `spec` to be instance of "
             f"PyTreeSpec but got item of type {type(treespec)}."
         )
-    from ._pytree import (
+    from .python import (
         tree_structure as _tree_structure,
         treespec_dumps as _treespec_dumps,
     )
@@ -821,7 +810,7 @@ def treespec_dumps(treespec: PyTreeSpec) -> str:
 
 def treespec_loads(serialized: str) -> PyTreeSpec:
     """Deserialize a treespec from a JSON string."""
-    from ._pytree import (
+    from .python import (
         tree_unflatten as _tree_unflatten,
         treespec_loads as _treespec_loads,
     )
