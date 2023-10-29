@@ -26,8 +26,14 @@ from typing import (
     Union,
 )
 
-import optree
-from optree import PyTreeSpec  # direct import for type annotations
+import torch
+
+if not (torch._running_with_deploy() and torch.compiled_with_cxx11_abi()):
+    import optree
+    from optree import PyTreeSpec  # direct import for type annotations
+else:
+    optree = None  # type: ignore[assignment]
+    from ._pytree import TreeSpec as PyTreeSpec  # type: ignore[assignment]
 
 
 __all__ = [
@@ -35,6 +41,9 @@ __all__ = [
     "Context",
     "FlattenFunc",
     "UnflattenFunc",
+    "DumpableContext",
+    "ToDumpableContextFn",
+    "FromDumpableContextFn",
     "TreeSpec",
     "LeafSpec",
     "register_pytree_node",
@@ -67,6 +76,9 @@ TreeSpec = PyTreeSpec
 FlattenFunc = Callable[[PyTree], Tuple[List, Context]]
 UnflattenFunc = Callable[[Iterable, Context], PyTree]
 OpTreeUnflattenFunc = Callable[[Context, Iterable], PyTree]
+DumpableContext = Any  # Any json dumpable text
+ToDumpableContextFn = Callable[[Context], DumpableContext]
+FromDumpableContextFn = Callable[[DumpableContext], Context]
 
 
 def _reverse_args(func: UnflattenFunc) -> OpTreeUnflattenFunc:
@@ -81,7 +93,11 @@ def register_pytree_node(
     cls: Type[Any],
     flatten_func: FlattenFunc,
     unflatten_func: UnflattenFunc,
+    *,
+    to_dumpable_context: Optional[ToDumpableContextFn] = None,
+    from_dumpable_context: Optional[FromDumpableContextFn] = None,
     namespace: str = "torch",
+    _register_python_pytree_node: bool = True,
 ) -> None:
     """Extend the set of types that are considered internal nodes in pytrees.
 
@@ -190,20 +206,30 @@ def register_pytree_node(
             )
         )
     """
-    from ._pytree import _register_pytree_node
+    if optree is None:
+        return
 
-    _register_pytree_node(
-        cls,
-        flatten_func,
-        unflatten_func,
-    )
+    # TODO(XuehaiPan): remove this condition when we make Python pytree out-of-box support
+    # PyStructSequence types
+    if not optree.is_structseq_class(cls):
+        optree.register_pytree_node(
+            cls,
+            flatten_func,
+            _reverse_args(unflatten_func),
+            namespace=namespace,
+        )
 
-    optree.register_pytree_node(
-        cls,
-        flatten_func,
-        _reverse_args(unflatten_func),
-        namespace=namespace,
-    )
+    if _register_python_pytree_node:
+        from . import _pytree
+
+        _pytree._register_pytree_node(
+            cls,
+            flatten_func,
+            unflatten_func,
+            to_dumpable_context=to_dumpable_context,
+            from_dumpable_context=from_dumpable_context,
+            _register_cxx_pytree_node=False,
+        )
 
 
 _register_pytree_node = register_pytree_node
